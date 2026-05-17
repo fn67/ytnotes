@@ -12,6 +12,11 @@ from YouTube videos using a local LLM via LM Studio.
 - **Terminal output:** `chalk` for colors, `marked` + `marked-terminal` for markdown rendering
 - **Flags/args:** `minimist` or `commander`
 - **Config:** `~/.ytnotes.config.json` (JSON file, managed by the tool)
+- **Interactive input:** Node.js built-in `readline` (for Q&A session)
+
+## Modes
+- **Interactive (default, `-i`):** Render notes → Q&A loop → `/1` save notes / `/2` save notes + Q&A / `/3` exit
+- **Save (`-w`):** Generate notes and write directly to file — no terminal display, no interaction
 
 ## Default Model
 `google/gemma-4-e4b` — this is what the user has loaded in LM Studio.

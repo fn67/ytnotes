@@ -6,6 +6,7 @@ import OpenAI from 'openai';
 import chalk from 'chalk';
 import { writeFileSync, mkdirSync, existsSync, readFileSync } from 'fs';
 import { join } from 'path';
+import { createInterface } from 'readline';
 import { marked } from 'marked';
 import { markedTerminal } from 'marked-terminal';
 
@@ -85,21 +86,21 @@ function handleConfigCommand(argv, config) {
 
 function parseArgs(config) {
   const argv = minimist(process.argv.slice(2), {
-    boolean: ['v', 'w'],
+    boolean: ['w', 'i'],
     string: ['config', 'm', 'p'],
     alias: { model: 'm', path: 'p' },
   });
 
-  const saveMode = argv.w === true;
-  const viewMode = !saveMode || argv.v === true;
+  const saveOnly = argv.w === true;
+  const interactive = !saveOnly;
 
   return {
     argv,
     url: argv._[0] ?? null,
     model: argv.m || config.defaultModel,
     outputPath: argv.p ? resolvePath(argv.p) : resolvePath(config.defaultPath),
-    viewMode,
-    saveMode,
+    interactive,
+    saveOnly,
   };
 }
 
@@ -278,13 +279,114 @@ function renderToTerminal(notes) {
   process.stdout.write(marked.parse(body));
 }
 
+function saveToFile(notes, url, videoId, model, words, outputPath, qaHistory) {
+  mkdirSync(outputPath, { recursive: true });
+  const filepath = getOutputFilePath(notes, outputPath);
+  const frontmatter = [
+    '---',
+    `source: "${url}"`,
+    `video_id: "${videoId}"`,
+    `model: "${model}"`,
+    `generated: "${new Date().toISOString()}"`,
+    `words_in_transcript: ${words}`,
+    '---',
+    '',
+    '',
+  ].join('\n');
+
+  let body = notes;
+  if (qaHistory && qaHistory.length > 0) {
+    const qaSection = qaHistory
+      .map(({ q, a }) => `**Q:** ${q}\n\n**A:** ${a}`)
+      .join('\n\n---\n\n');
+    body += '\n\n## Q&A\n\n' + qaSection + '\n';
+  }
+
+  writeFileSync(filepath, frontmatter + body + '\n');
+  console.log(chalk.bold.green(`\n  Saved → ${filepath}\n`));
+}
+
+// ---------------------------------------------------------------------------
+// Interactive mode
+// ---------------------------------------------------------------------------
+
+async function runInteractiveMode(client, model, notes, fullText, url, videoId, words, outputPath) {
+  console.log('\n' + chalk.dim('─'.repeat(60)) + '\n');
+  renderToTerminal(notes);
+  console.log(chalk.dim('─'.repeat(60)));
+
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
+  const qaHistory = [];
+
+  rl.on('SIGINT', () => {
+    console.log(chalk.dim('\n\n  Exiting without saving.'));
+    process.exit(0);
+  });
+
+  function ask(prompt) {
+    return new Promise(resolve => rl.question(prompt, resolve));
+  }
+
+  const QA_SYSTEM = `You are answering questions about a YouTube video based on its transcript and notes. Answer concisely and accurately. Reference timestamps where helpful. If the answer isn't in the material, say so.`;
+
+  while (true) {
+    process.stdout.write(chalk.dim('\n  /1 save notes only · /2 save notes + Q&A · /3 exit without saving\n'));
+    const input = (await ask(chalk.cyan('  > '))).trim();
+
+    if (!input) continue;
+
+    if (input === '/1') {
+      saveToFile(notes, url, videoId, model, words, outputPath, null);
+      rl.close();
+      process.exit(0);
+    }
+    if (input === '/2') {
+      saveToFile(notes, url, videoId, model, words, outputPath, qaHistory);
+      rl.close();
+      process.exit(0);
+    }
+    if (input === '/3') {
+      console.log(chalk.dim('\n  Exiting without saving.\n'));
+      rl.close();
+      process.exit(0);
+    }
+
+    process.stdout.write(chalk.yellow('\n  Thinking... '));
+    const userMessage = [
+      `## Notes\n\n${notes}`,
+      `## Transcript\n\n${fullText}`,
+      qaHistory.length > 0
+        ? `## Prior Q&A\n\n${qaHistory.map(({ q, a }) => `Q: ${q}\nA: ${a}`).join('\n\n')}`
+        : null,
+      `## Question\n\n${input}`,
+    ].filter(Boolean).join('\n\n---\n\n');
+
+    let answer;
+    try {
+      answer = await callLLM(client, model, QA_SYSTEM, userMessage);
+    } catch (err) {
+      process.stdout.write('\n');
+      handleLLMError(err, model);
+      console.log(chalk.dim('  (use /1 /2 /3 to save or exit)\n'));
+      continue;
+    }
+
+    process.stdout.write('\n');
+    console.log(chalk.dim('─'.repeat(60)));
+    renderToTerminal(answer);
+    console.log(chalk.dim('─'.repeat(60)));
+
+    qaHistory.push({ q: input, a: answer });
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Main
 // ---------------------------------------------------------------------------
 
 async function main() {
   const config = loadConfig();
-  const { argv, url, model, outputPath, viewMode, saveMode } = parseArgs(config);
+  const { argv, url, model, outputPath, interactive, saveOnly } = parseArgs(config);
 
   if (argv.config) {
     handleConfigCommand(argv, config);
@@ -293,7 +395,7 @@ async function main() {
   if (!url) {
     console.error(chalk.red('Error: No YouTube URL provided.'));
     console.error(chalk.dim('Usage: ytnotes [flags] "<youtube-url>"'));
-    console.error(chalk.dim('Flags: -v (view) -w (save) -vw (both) -p <path> -m <model>'));
+    console.error(chalk.dim('Flags: -i (interactive, default) -w (save to file) -p <path> -m <model>'));
     process.exit(1);
   }
 
@@ -385,28 +487,10 @@ async function main() {
   }
 
   // Output
-  if (viewMode) {
-    console.log('\n' + chalk.dim('─'.repeat(60)) + '\n');
-    renderToTerminal(notes);
-    console.log(chalk.dim('─'.repeat(60)));
-  }
-
-  if (saveMode) {
-    mkdirSync(outputPath, { recursive: true });
-    const filepath = getOutputFilePath(notes, outputPath);
-    const frontmatter = [
-      '---',
-      `source: "${url}"`,
-      `video_id: "${videoId}"`,
-      `model: "${model}"`,
-      `generated: "${new Date().toISOString()}"`,
-      `words_in_transcript: ${words}`,
-      '---',
-      '',
-      '',
-    ].join('\n');
-    writeFileSync(filepath, frontmatter + notes + '\n');
-    console.log(chalk.bold.green(`\n  Saved → ${filepath}\n`));
+  if (saveOnly) {
+    saveToFile(notes, url, videoId, model, words, outputPath, null);
+  } else {
+    await runInteractiveMode(client, model, notes, fullText, url, videoId, words, outputPath);
   }
 }
 

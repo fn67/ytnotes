@@ -35,10 +35,9 @@ ytnotes [flags] "<youtube-url>"
 
 | Flag | Description |
 |------|-------------|
-| (none) | View notes in terminal — default behaviour |
-| `-v` | Explicitly view notes in terminal |
-| `-w` | Save notes to file only (no terminal preview) |
-| `-vw` | View in terminal AND save to file |
+| (none) | Interactive mode — render notes, Q&A session, then save prompt (default) |
+| `-i` | Explicitly enter interactive mode |
+| `-w` | Save notes to file directly — no terminal display or interaction |
 | `-p <path>` | Override output directory for this run |
 | `-m <model>` | Override LLM model for this run |
 | `--config set-path <path>` | Set default save directory |
@@ -47,17 +46,17 @@ ytnotes [flags] "<youtube-url>"
 
 ### Examples
 ```bash
-# View notes in terminal (default)
+# Interactive mode (default) — view notes, ask questions, then save or exit
 ytnotes "https://www.youtube.com/watch?v=xxx"
 
-# Save only
+# Same, explicit flag
+ytnotes -i "https://www.youtube.com/watch?v=xxx"
+
+# Save to file directly — no interaction
 ytnotes -w "https://www.youtube.com/watch?v=xxx"
 
-# View and save
-ytnotes -vw "https://www.youtube.com/watch?v=xxx"
-
 # Save to custom path
-ytnotes -vw -p ~/Documents/notes "https://www.youtube.com/watch?v=xxx"
+ytnotes -w -p ~/Documents/notes "https://www.youtube.com/watch?v=xxx"
 
 # Use a different model
 ytnotes -m mistral "https://www.youtube.com/watch?v=xxx"
@@ -151,13 +150,44 @@ where they help the reader locate key moments in the video.
 
 ---
 
-## Terminal Rendering (View Mode)
+## Interactive Mode (default)
 
-- Notes are rendered using `marked` + `marked-terminal`
+Interactive mode runs in three phases:
+
+### 1. Notes Display
+Notes are rendered to the terminal immediately after generation:
+- Rendered using `marked` + `marked-terminal`
 - No raw markdown symbols (`#`, `**`, `-`) visible
 - Headings appear as bold coloured text
 - Bullets render as clean bullet points
-- A separator line shown between sections
+- A separator line shown above and below the notes
+
+### 2. Q&A Session
+After the notes are displayed, the user enters a Q&A loop. They can ask any question about the video — the LLM answers using the transcript as context.
+
+- Each question is sent to the LLM with the full transcript and generated notes as context
+- Answers are rendered to the terminal in the same styled markdown format as the notes
+- The session continues until the user enters a slash command
+
+The prompt line shows available commands below the input:
+```
+> _
+  /1 save notes only · /2 save notes + Q&A · /3 exit without saving
+```
+
+### 3. End Menu
+Slash commands are available at any point during the Q&A session:
+
+| Command | Action |
+|---------|--------|
+| `/1` | Save notes to file and exit |
+| `/2` | Save notes + full Q&A transcript to file and exit |
+| `/3` | Exit without saving |
+
+**Save behaviour:**
+- `/1` saves the generated notes only, using the standard file naming and frontmatter format
+- `/2` saves notes first, then appends the Q&A session below a `## Q&A` heading
+- Both use the output path from `-p` or config `defaultPath`
 
 ---
 
