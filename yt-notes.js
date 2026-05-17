@@ -125,8 +125,17 @@ function extractVideoId(url) {
 // Transcript helpers
 // ---------------------------------------------------------------------------
 
+function formatTimestamp(offsetMs) {
+  const total = Math.floor(offsetMs / 1000);
+  const s = total % 60;
+  const m = Math.floor(total / 60) % 60;
+  const h = Math.floor(total / 3600);
+  if (h > 0) return `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+  return `${m}:${String(s).padStart(2, '0')}`;
+}
+
 function transcriptToText(entries) {
-  return entries.map(e => e.text.trim()).join(' ');
+  return entries.map(e => `[${formatTimestamp(e.offset)}] ${e.text.trim()}`).join('\n');
 }
 
 function wordCount(text) {
@@ -158,7 +167,13 @@ async function callLLM(client, model, systemPrompt, userContent) {
   return response.choices[0].message.content.trim();
 }
 
-const SINGLE_SYSTEM = `You are an expert note-taker. Given a YouTube video transcript, produce well-structured markdown notes using EXACTLY this structure and these section headings:
+const TIMESTAMP_RULES = `- The transcript includes timestamps in [M:SS] or [H:MM:SS] format at the start of each line.
+- Reference timestamps inline within sentences where they genuinely help the reader navigate to a key moment — for example: "The speaker explains the attention mechanism [8:45] using a library analogy."
+- Only include a timestamp when it marks something notable: a new concept introduced, a demo starting, a key argument made, or an important moment worth jumping to.
+- Do not add a timestamp to every sentence or bullet. Timestamps should feel natural, not mechanical.
+- Never place a timestamp on its own line or as a standalone prefix.`;
+
+const SINGLE_SYSTEM = `You are an expert note-taker. Given a YouTube video transcript with timestamps, produce well-structured markdown notes using EXACTLY this structure and these section headings:
 
 # Video Title
 
@@ -181,10 +196,11 @@ Organised sections covering the main topics discussed.
 Rules:
 - Replace "Video Title" with the actual title inferred from the transcript.
 - Use proper markdown. Do not wrap output in a code block.
-- Do not add any sections beyond those listed above.`;
+- Do not add any sections beyond those listed above.
+${TIMESTAMP_RULES}`;
 
 const CHUNK_SYSTEM = (n, total) =>
-  `You are summarizing section ${n} of ${total} of a YouTube transcript. Extract the key ideas, facts, and arguments from this section into concise markdown notes. Be thorough — these partial notes will be combined later.`;
+  `You are summarizing section ${n} of ${total} of a YouTube transcript with timestamps. Extract the key ideas, facts, and arguments from this section into concise markdown notes. Be thorough — these partial notes will be combined later.\n${TIMESTAMP_RULES}`;
 
 const SYNTHESIS_SYSTEM = `You are combining partial notes from different sections of a single YouTube video into one cohesive markdown document. Merge overlapping ideas, remove redundancy, and produce the final notes using EXACTLY this structure:
 
@@ -208,7 +224,9 @@ Organised sections covering the main topics discussed.
 Rules:
 - Replace "Video Title" with the actual title inferred from the content.
 - Use proper markdown. Do not wrap in a code block.
-- Do not add any sections beyond those listed above.`;
+- Do not add any sections beyond those listed above.
+- Preserve timestamps from the partial notes where they remain relevant and natural.
+- Do not add new timestamps during synthesis — only carry forward ones already present.`;
 
 // ---------------------------------------------------------------------------
 // Error helpers

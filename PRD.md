@@ -89,6 +89,40 @@ Config is stored at `~/.ytnotes.config.json`:
 
 ---
 
+## Transcript Format Sent to LLM
+
+The `youtube-transcript` API returns each line with an offset (in seconds). Before sending to the LLM, the transcript is converted to a timestamped plain-text format:
+
+```
+[0:12] Welcome to this tutorial on neural networks.
+[0:28] Today we'll cover three main concepts.
+[1:05] First, let's talk about the perceptron model.
+```
+
+- Timestamps are formatted as `[M:SS]` or `[H:MM:SS]` for videos over an hour
+- Each transcript entry becomes one line with its timestamp prefix
+- This format is used for both single-pass and chunked processing
+
+---
+
+## Timestamp Usage in Notes
+
+The LLM is instructed to reference timestamps naturally and inline where they add value — to mark when a key concept is introduced, when a demonstration starts, or when a notable moment occurs. Timestamps should not appear in every sentence; only where genuinely useful.
+
+**Good examples:**
+- `The speaker explains the attention mechanism [8:45] using a library analogy.`
+- `A live coding demo begins at [12:30] showing the full training loop.`
+- `The Q&A section [45:10] covers common pitfalls with batch normalisation.`
+
+**Avoid:**
+- Timestamps on every bullet point
+- Timestamps on generic or transitional sentences
+- Timestamps that don't help the reader navigate the video
+
+Timestamps appear inline within sentences — never on their own line or as a standalone prefix.
+
+---
+
 ## Notes Format
 
 Generated notes must follow this structure:
@@ -105,7 +139,8 @@ Generated notes must follow this structure:
 - ...
 
 ## Detailed Notes
-Organised sections covering main topics discussed.
+Organised sections covering main topics discussed, with inline timestamps [M:SS]
+where they help the reader locate key moments in the video.
 
 ## Key Terms & Concepts
 - **Term:** Definition
