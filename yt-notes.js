@@ -86,9 +86,9 @@ function handleConfigCommand(argv, config) {
 
 function parseArgs(config) {
   const argv = minimist(process.argv.slice(2), {
-    boolean: ['w', 'i'],
+    boolean: ['w', 'i', 'help'],
     string: ['config', 'm', 'p'],
-    alias: { model: 'm', path: 'p' },
+    alias: { model: 'm', path: 'p', h: 'help' },
   });
 
   const saveOnly = argv.w === true;
@@ -101,6 +101,7 @@ function parseArgs(config) {
     outputPath: argv.p ? resolvePath(argv.p) : resolvePath(config.defaultPath),
     interactive,
     saveOnly,
+    showHelp: argv.help === true,
   };
 }
 
@@ -381,12 +382,69 @@ async function runInteractiveMode(client, model, notes, fullText, url, videoId, 
 }
 
 // ---------------------------------------------------------------------------
+// Help
+// ---------------------------------------------------------------------------
+
+function printHelp() {
+  const b = chalk.bold;
+  const c = chalk.cyan;
+  const d = chalk.dim;
+  const g = chalk.green;
+
+  console.log();
+  console.log('  ' + chalk.bold.cyan('ytnotes') + d('  —  Generate smart notes from YouTube videos'));
+  console.log();
+
+  console.log(b('  Usage'));
+  console.log('    ytnotes ' + d('[flags]') + ' ' + c('"<youtube-url>"'));
+  console.log();
+
+  console.log(b('  Flags'));
+  console.log('    ' + c('(none), -i') + '  ' + 'Interactive mode — render notes, then Q&A session  ' + g('[default]'));
+  console.log('    ' + c('-w') + '          ' + 'Save notes to file directly — no interaction');
+  console.log('    ' + c('-p <path>') + '   ' + 'Override output directory for this run');
+  console.log('    ' + c('-m <model>') + '  ' + 'Override LLM model for this run');
+  console.log('    ' + c('--help') + '      ' + 'Show this help page');
+  console.log();
+
+  console.log(b('  Config'));
+  console.log('    ' + c('--config show') + '                 ' + 'Display current config');
+  console.log('    ' + c('--config set-path <path>') + '      ' + 'Set default save directory');
+  console.log('    ' + c('--config set-model <model>') + '    ' + 'Set default LLM model');
+  console.log();
+
+  console.log(b('  Examples'));
+  console.log('    ' + d('ytnotes "https://youtube.com/watch?v=xxx"'));
+  console.log('    ' + d('ytnotes -w "https://youtube.com/watch?v=xxx"'));
+  console.log('    ' + d('ytnotes -w -p ~/Documents/notes "https://youtube.com/watch?v=xxx"'));
+  console.log('    ' + d('ytnotes -m mistral "https://youtube.com/watch?v=xxx"'));
+  console.log('    ' + d('ytnotes --config set-path ~/notes'));
+  console.log('    ' + d('ytnotes --config show'));
+  console.log();
+
+  console.log(b('  Interactive session commands'));
+  console.log('    ' + c('/1') + '  Save notes only');
+  console.log('    ' + c('/2') + '  Save notes + Q&A transcript');
+  console.log('    ' + c('/3') + '  Exit without saving');
+  console.log();
+
+  console.log(d('  Config file  ~/.ytnotes.config.json'));
+  console.log(d('  LM Studio    http://127.0.0.1:1234'));
+  console.log();
+}
+
+// ---------------------------------------------------------------------------
 // Main
 // ---------------------------------------------------------------------------
 
 async function main() {
   const config = loadConfig();
-  const { argv, url, model, outputPath, interactive, saveOnly } = parseArgs(config);
+  const { argv, url, model, outputPath, interactive, saveOnly, showHelp } = parseArgs(config);
+
+  if (showHelp) {
+    printHelp();
+    process.exit(0);
+  }
 
   if (argv.config) {
     handleConfigCommand(argv, config);
