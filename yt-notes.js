@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { createRequire } from 'module';
 import { homedir } from 'os';
-import { YoutubeTranscript } from 'youtube-transcript';
+import { YoutubeTranscript, YoutubeTranscriptNotAvailableLanguageError } from 'youtube-transcript';
 import OpenAI from 'openai';
 import chalk from 'chalk';
 import { writeFileSync, mkdirSync, existsSync, readFileSync } from 'fs';
@@ -169,7 +169,8 @@ async function callLLM(client, model, systemPrompt, userContent) {
   return response.choices[0].message.content.trim();
 }
 
-const TIMESTAMP_RULES = `- The transcript includes timestamps in [M:SS] or [H:MM:SS] format at the start of each line.
+const TIMESTAMP_RULES = `- Always respond in English regardless of the transcript language.
+- The transcript includes timestamps in [M:SS] or [H:MM:SS] format at the start of each line.
 - Reference timestamps inline within sentences where they genuinely help the reader navigate to a key moment — for example: "The speaker explains the attention mechanism [8:45] using a library analogy."
 - Only include a timestamp when it marks something notable: a new concept introduced, a demo starting, a key argument made, or an important moment worth jumping to.
 - Do not add a timestamp to every sentence or bullet. Timestamps should feel natural, not mechanical.
@@ -467,15 +468,26 @@ async function main() {
   console.log(chalk.dim(`  URL:   ${url}`));
   console.log(chalk.dim(`  Model: ${model}\n`));
 
-  // Fetch transcript
+  // Fetch transcript — prefer English, fall back to default
   process.stdout.write(chalk.yellow('→ Fetching transcript... '));
   let entries;
   try {
-    entries = await YoutubeTranscript.fetchTranscript(videoId);
+    entries = await YoutubeTranscript.fetchTranscript(videoId, { lang: 'en' });
   } catch (err) {
-    process.stdout.write('\n');
-    console.error(chalk.red('No transcript found for this video. It may be disabled or unavailable.'));
-    process.exit(1);
+    if (err instanceof YoutubeTranscriptNotAvailableLanguageError) {
+      process.stdout.write(chalk.yellow('no English transcript — trying default language... '));
+      try {
+        entries = await YoutubeTranscript.fetchTranscript(videoId);
+      } catch (err2) {
+        process.stdout.write('\n');
+        console.error(chalk.red('No transcript found for this video. It may be disabled or unavailable.'));
+        process.exit(1);
+      }
+    } else {
+      process.stdout.write('\n');
+      console.error(chalk.red('No transcript found for this video. It may be disabled or unavailable.'));
+      process.exit(1);
+    }
   }
 
   if (!entries || entries.length === 0) {
